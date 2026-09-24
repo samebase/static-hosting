@@ -3,6 +3,9 @@
 This example demonstrates how to use the `@convex-dev/static-hosting` component
 to host a React/Vite app directly on Convex.
 
+For server-rendered pages, see the separate
+[TanStack Start example](../example-ssr/README.md).
+
 ## Running the Example
 
 From the root of the repository:

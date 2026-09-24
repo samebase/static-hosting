@@ -388,7 +388,9 @@ steps, verification, rollback, and the optional staged cutover.
 
 ## Example
 
-See [`example/`](./example) for a complete Vite + React app.
+See [`example/`](./example) for a static Vite + React app, or
+[`example-ssr/`](./example-ssr) for TanStack Start rendering inside Convex HTTP
+actions, with hydrated React and live Convex queries.
 
 ```bash
 npm install
