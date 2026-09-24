@@ -46,8 +46,8 @@ const serveStaticFile = httpAction(async (ctx, request) => {
   }
 
   // One query resolves the asset: an exact match, or, when SPA fallback is
-  // enabled for the current deployment, the index.html asset for an
-  // extension-less miss. The fallback lookup happens inside the query so the
+  // enabled for the current deployment, the index.html asset for any missing
+  // path. The fallback lookup happens inside the query so the
   // HTTP action never makes a second round-trip.
   const asset = await ctx.runQuery(internal.lib.resolveAsset, { path });
 
@@ -78,7 +78,7 @@ const serveStaticFile = httpAction(async (ctx, request) => {
       status: 302,
       headers: {
         Location: redirectUrl,
-        "Cache-Control": cacheControlFor(path),
+        "Cache-Control": cacheControlFor(asset.path),
       },
     });
   }
@@ -92,7 +92,9 @@ const serveStaticFile = httpAction(async (ctx, request) => {
 
   const etag = `"${asset.storageId}"`;
   const ifNoneMatch = request.headers.get("If-None-Match");
-  const cacheControl = cacheControlFor(path);
+  const cacheControl = isHtmlContentType(contentType)
+    ? "no-store"
+    : cacheControlFor(asset.path);
 
   if (etagMatches(ifNoneMatch, etag)) {
     return new Response(null, {

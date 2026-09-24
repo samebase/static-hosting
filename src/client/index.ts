@@ -50,6 +50,8 @@ export function registerStaticRoutes(
     pathPrefix = "/",
     spaFallback,
     cdnBaseUrl,
+    rewritePath,
+    fallback,
   }: {
     /** URL prefix where the app should serve static files. */
     pathPrefix?: string;
@@ -57,6 +59,10 @@ export function registerStaticRoutes(
     spaFallback?: boolean;
     /** Optional custom base URL for convex-fs blob redirects. */
     cdnBaseUrl?: string | ((request: Request) => string);
+    /** Rewrite the decoded request path before resolving a static asset. */
+    rewritePath?: (path: string, request: Request) => string;
+    /** Handle an exact asset miss before static rewrites or SPA fallback. Return null to continue static serving. */
+    fallback?: (request: Request) => Response | null | Promise<Response | null>;
   } = {},
 ) {
   if (!pathPrefix.startsWith("/")) {
@@ -80,14 +86,32 @@ export function registerStaticRoutes(
     if (normalizedPrefix && path.startsWith(normalizedPrefix)) {
       path = path.slice(normalizedPrefix.length) || "/";
     }
-    if (path === "" || path === "/") {
-      path = "/index.html";
-    }
+    let asset = fallback
+      ? await ctx.runQuery(component.lib.resolveAssetForHttp, {
+          path,
+          spaFallback: false,
+        })
+      : null;
 
-    const asset = await ctx.runQuery(component.lib.resolveAssetForHttp, {
-      path,
-      ...(spaFallback === undefined ? {} : { spaFallback }),
-    });
+    if (!asset) {
+      const response = await fallback?.(request);
+      if (response) return response;
+
+      if (rewritePath) {
+        path = rewritePath(path, request);
+        if (!path.startsWith("/")) {
+          throw new Error("rewritePath must return a path that starts with /");
+        }
+      }
+      if (path === "" || path === "/") {
+        path = "/index.html";
+      }
+
+      asset = await ctx.runQuery(component.lib.resolveAssetForHttp, {
+        path,
+        ...(spaFallback === undefined ? {} : { spaFallback }),
+      });
+    }
 
     if (!asset) {
       if (path === "/index.html") {
@@ -107,7 +131,9 @@ export function registerStaticRoutes(
     }
 
     const contentType = asset.contentType || getMimeType(path);
-    const cacheControl = cacheControlFor(path);
+    const cacheControl = isHtmlContentType(contentType)
+      ? "no-store"
+      : cacheControlFor(path);
 
     if (asset.blobId && !isHtmlContentType(contentType)) {
       const configuredBase =

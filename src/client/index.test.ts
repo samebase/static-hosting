@@ -47,6 +47,190 @@ function staticHandler(path = "/") {
 }
 
 describe("registerStaticRoutes", () => {
+  test("exact assets bypass fallback and path rewrites", async () => {
+    const http = httpRouter();
+    const fallback = vi.fn(() => new Response("SSR"));
+    const rewritePath = vi.fn(() => "/index.html");
+    registerStaticRoutes(http, components.staticHosting, {
+      fallback,
+      rewritePath,
+    });
+    const handler = http.lookup("/assets/app-B71cUw87.js", "GET")?.[0];
+    if (!handler) throw new Error("No static route registered");
+    const runQuery = vi.fn().mockResolvedValue({
+      storageUrl: "https://storage.example/app.js",
+      contentType: "application/javascript",
+      etag: '"app"',
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("application")),
+    );
+
+    const response = await invokeHandler(
+      handler,
+      runQuery,
+      new Request("https://app.convex.site/assets/app-B71cUw87.js"),
+    );
+
+    expect(await response.text()).toBe("application");
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    expect(fallback).not.toHaveBeenCalled();
+    expect(rewritePath).not.toHaveBeenCalled();
+  });
+
+  test("returns the fallback response before rewriting or serving the SPA shell", async () => {
+    const http = httpRouter();
+    const rendered = new Response("SSR redirect", {
+      status: 307,
+      headers: { Location: "/login", "Set-Cookie": "session=value; HttpOnly" },
+    });
+    const fallback = vi.fn(async () => rendered);
+    const rewritePath = vi.fn(() => "/index.html");
+    registerStaticRoutes(http, components.staticHosting, {
+      fallback,
+      rewritePath,
+    });
+    const handler = http.lookup("/sites/example.com", "GET")?.[0];
+    if (!handler) throw new Error("No static route registered");
+    const request = new Request(
+      "https://app.convex.site/sites/example.com?tab=activity",
+    );
+
+    const response = await invokeHandler(
+      handler,
+      vi.fn().mockResolvedValue(null),
+      request,
+    );
+
+    expect(response).toBe(rendered);
+    expect(response.status).toBe(307);
+    expect(response.headers.get("Location")).toBe("/login");
+    expect(response.headers.get("Set-Cookie")).toBe("session=value; HttpOnly");
+    expect(fallback).toHaveBeenCalledWith(request);
+    expect(rewritePath).not.toHaveBeenCalled();
+  });
+
+  test("a null fallback continues with decoded, prefix-relative path rewriting", async () => {
+    const http = httpRouter();
+    const rewritePath = vi.fn(() => "/docs/hello world/index.html");
+    registerStaticRoutes(http, components.staticHosting, {
+      pathPrefix: "/app/",
+      fallback: async () => null,
+      rewritePath,
+      spaFallback: false,
+    });
+    const handler = http.lookup("/app/docs/hello%20world", "GET")?.[0];
+    if (!handler) throw new Error("No static route registered");
+    const runQuery = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({
+      storageUrl: "https://storage.example/docs",
+      contentType: "text/html; charset=utf-8",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("Prerendered page")),
+    );
+    const request = new Request(
+      "https://app.convex.site/app/docs/hello%20world?q=1",
+    );
+
+    const response = await invokeHandler(handler, runQuery, request);
+
+    expect(rewritePath).toHaveBeenCalledWith("/docs/hello world", request);
+    expect(runQuery).toHaveBeenCalledWith(
+      components.staticHosting.lib.resolveAssetForHttp,
+      {
+        path: "/docs/hello world/index.html",
+        spaFallback: false,
+      },
+    );
+    expect(await response.text()).toBe("Prerendered page");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  test("rewrites the root before normalizing it to index.html", async () => {
+    const http = httpRouter();
+    registerStaticRoutes(http, components.staticHosting, {
+      rewritePath: (path) => (path === "/" ? "/home/index.html" : path),
+    });
+    const handler = http.lookup("/", "GET")?.[0];
+    if (!handler) throw new Error("No static route registered");
+    const runQuery = vi.fn().mockResolvedValue(null);
+    await invokeHandler(
+      handler,
+      runQuery,
+      new Request("https://app.convex.site/"),
+    );
+    expect(runQuery).toHaveBeenCalledWith(
+      components.staticHosting.lib.resolveAssetForHttp,
+      {
+        path: "/home/index.html",
+      },
+    );
+  });
+
+  test("rejects a rewrite that is not an absolute path", async () => {
+    const http = httpRouter();
+    registerStaticRoutes(http, components.staticHosting, {
+      rewritePath: () => "relative.html",
+    });
+    const handler = http.lookup("/", "GET")?.[0];
+    if (!handler) throw new Error("No static route registered");
+    await expect(
+      invokeHandler(handler, vi.fn(), new Request("https://app.convex.site/")),
+    ).rejects.toThrow("rewritePath must return a path that starts with /");
+  });
+
+  test("surfaces fallback failures to the caller", async () => {
+    const http = httpRouter();
+    const failure = new Error("Renderer failed");
+    registerStaticRoutes(http, components.staticHosting, {
+      fallback: () => {
+        throw failure;
+      },
+    });
+    const handler = http.lookup("/", "GET")?.[0];
+    if (!handler) throw new Error("No static route registered");
+    await expect(
+      invokeHandler(
+        handler,
+        vi.fn().mockResolvedValue(null),
+        new Request("https://app.convex.site/"),
+      ),
+    ).rejects.toBe(failure);
+  });
+
+  test("HTML fallback on a missing hashed asset is never cached as immutable", async () => {
+    const handler = staticHandler();
+    const runQuery = vi.fn().mockResolvedValue({
+      storageUrl: "https://storage.example/index",
+      contentType: "text/html; charset=utf-8",
+      etag: '"index"',
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("SPA shell")),
+    );
+    const response = await invokeHandler(
+      handler,
+      runQuery,
+      new Request("https://app.convex.site/assets/missing-B71cUw87.js"),
+    );
+    expect(await response.text()).toBe("SPA shell");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const cached = await invokeHandler(
+      handler,
+      runQuery,
+      new Request("https://app.convex.site/assets/missing-B71cUw87.js", {
+        headers: { "If-None-Match": '"index"' },
+      }),
+    );
+    expect(cached.status).toBe(304);
+    expect(cached.headers.get("Cache-Control")).toBe("no-store");
+  });
+
   test("keeps exact app routes ahead of the static catch-all", () => {
     const http = httpRouter();
     const authHandler = httpActionGeneric(async () => new Response("auth"));

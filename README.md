@@ -11,9 +11,10 @@ alongside your backend.
 
 - 🚀 **One-command deploy:** build, push backend, and upload static files in a
   single step.
-- 🔄 **SPA routing:** paths without an extension fall back to `index.html`.
-- ⚡ **Smart caching:** static files are cached for speed, with safe updates when
-  a new version is deployed.
+- 🔄 **SPA routing:** unmatched paths fall back to `index.html`, including
+  dotted routes.
+- ⚡ **Smart caching:** static files are cached for speed, with safe updates
+  when a new version is deployed.
 - 🔔 **Deployment update notifications:** show connected users a prompt when a
   new version is ready.
 - 🔒 **Authenticated uploads:** uploads go through the Convex CLI's
@@ -242,8 +243,8 @@ npx @convex-dev/static-hosting upload [options]
 
 Each upload is published atomically, so visitors never see a page that refers to
 assets that are not available yet. Failed uploads leave the previous deployment
-live, and old files are cleaned up safely. See [INTEGRATION.md](./INTEGRATION.md)
-for upload limits and lifecycle details.
+live, and old files are cleaned up safely. See
+[INTEGRATION.md](./INTEGRATION.md) for upload limits and lifecycle details.
 
 Convex HTTP routes currently support GET but not HEAD. Configure uptime checks
 to make a lightweight GET request rather than a HEAD request.
@@ -342,18 +343,19 @@ Root-mounted apps don't need this; the default is `/`. For webpack use
 
 ## SPA routing
 
-By default, requests for a path with no file extension that doesn't match an
-uploaded file fall back to `index.html`, so client-side routes like
-`/dashboard/settings` work on reload. For a multi-page app where unknown paths
+By default, requests that don't match an uploaded file fall back to
+`index.html`, so client-side routes like `/dashboard/settings` and
+`/sites/example.com` work on reload. For a multi-page app where unknown paths
 should be a real 404, deploy with `--no-spa`:
 
 ```bash
 npx @convex-dev/static-hosting deploy --no-spa
 ```
 
-The setting is stored with the deployment, so it travels with the code you ship
-rather than living in a separate env var. Requests for paths with an extension
-(e.g. `/missing.js`) always 404 when not found, regardless of this setting.
+The setting is stored with the deployment. Missing asset paths such as
+`/missing.js` also receive the HTML shell when SPA fallback is enabled. HTML
+responses use `Cache-Control: no-store`, even when the requested path looks like
+a hashed asset. Existing hashed assets retain their immutable cache headers.
 
 ## Upgrading from 0.1.x
 

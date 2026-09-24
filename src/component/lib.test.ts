@@ -844,14 +844,14 @@ describe("component lib", () => {
       expect(asset?.path).toBe("/index.html");
     });
 
-    test("does not fall back for paths with an extension", async () => {
+    test("falls back for dotted application routes", async () => {
       const t = initConvexTest();
       await seedIndex(t);
 
       const asset = await t.query(internal.lib.resolveAsset, {
-        path: "/missing.js",
+        path: "/sites/example.com",
       });
-      expect(asset).toBeNull();
+      expect(asset?.path).toBe("/index.html");
     });
 
     test("does not fall back when the deployment disables it", async () => {

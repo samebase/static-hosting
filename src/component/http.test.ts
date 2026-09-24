@@ -66,7 +66,7 @@ describe("static file serving", () => {
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
   });
 
-  test("HTML is revalidated rather than cached immutably", async () => {
+  test("HTML responses are not stored in caches", async () => {
     const t = initConvexTest();
     await storeAsset(
       t,
@@ -76,9 +76,7 @@ describe("static file serving", () => {
     );
 
     const res = await t.fetch("/", {});
-    expect(res.headers.get("Cache-Control")).toBe(
-      "public, max-age=0, must-revalidate",
-    );
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
   });
 
   test("returns 304 for weak or listed If-None-Match validators", async () => {
@@ -134,7 +132,7 @@ describe("static file serving", () => {
     expect(await res.text()).toContain("id=root");
   });
 
-  test("missing files with an extension 404 (no SPA fallback)", async () => {
+  test("SPA fallback for a missing hashed asset never inherits immutable caching", async () => {
     const t = initConvexTest();
     await storeAsset(
       t,
@@ -143,8 +141,18 @@ describe("static file serving", () => {
       "text/html; charset=utf-8",
     );
 
-    const res = await t.fetch("/missing.js", {});
-    expect(res.status).toBe(404);
+    const res = await t.fetch("/assets/missing-B71cUw87.js", {});
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.text()).toBe("<!doctype html>");
+    const etag = res.headers.get("ETag");
+    if (!etag) throw new Error("Missing HTML ETag");
+    const cached = await t.fetch("/assets/missing-B71cUw87.js", {
+      headers: { "If-None-Match": etag },
+    });
+    expect(cached.status).toBe(304);
+    expect(cached.headers.get("Cache-Control")).toBe("no-store");
   });
 
   test("shows the setup page when nothing is deployed", async () => {
@@ -174,7 +182,7 @@ describe("static file serving", () => {
     expect(res.headers.get("Retry-After")).toBe("5");
   });
 
-  test("extension-less misses 404 when SPA fallback is disabled", async () => {
+  test("all misses 404 when SPA fallback is disabled", async () => {
     const t = initConvexTest();
     await storeAsset(
       t,
@@ -188,8 +196,10 @@ describe("static file serving", () => {
       spaFallback: false,
     });
 
-    const res = await t.fetch("/dashboard", {});
-    expect(res.status).toBe(404);
+    for (const path of ["/dashboard", "/sites/example.com", "/missing.js"]) {
+      const res = await t.fetch(path, {});
+      expect(res.status).toBe(404);
+    }
   });
 });
 

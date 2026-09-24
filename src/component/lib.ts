@@ -7,7 +7,6 @@ import {
   type QueryCtx,
 } from "./_generated/server.js";
 import type { Id } from "./_generated/dataModel.js";
-import { hasFileExtension } from "./serving.js";
 
 const staticAssetValidator = v.object({
   _id: v.id("staticAssets"),
@@ -61,8 +60,6 @@ async function resolveAssetDocument(
     .withIndex("by_path", (q) => q.eq("path", path))
     .unique();
   if (exact) return exact;
-
-  if (hasFileExtension(path)) return null;
 
   const info = await ctx.db.query("deploymentInfo").first();
   const spaFallback = spaFallbackOverride ?? info?.spaFallback ?? true;

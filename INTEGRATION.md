@@ -10,7 +10,8 @@ SPA routing and smart caching.
 - A drop-in HTTP handler that serves your static files from Convex storage
 - One CLI command (`deploy`) that builds, deploys the backend, and uploads files
 - SPA fallback to `index.html` for client-side routing
-- Long-term cache headers on hashed assets and ETag-based revalidation on HTML
+- Long-term cache headers on hashed assets and `no-store` on HTML, with ETag
+  support
 - Optional live-reload notifications when a new deploy ships
 - Authenticated uploads via the Convex CLI (no public upload endpoint)
 
@@ -322,11 +323,11 @@ equivalents: `publicPath` and `assetPrefix`.
 
 ## SPA routing
 
-Requests for an extension-less path that doesn't match an uploaded file fall
-back to `index.html`, so client-side routes survive a reload. Paths with an
-extension (e.g. `/missing.js`) always 404 when not found. To turn the fallback
-off for a multi-page app (unknown paths become real 404s), deploy with
-`--no-spa`:
+Requests that don't match an uploaded file fall back to `index.html`, including
+dotted routes such as `/sites/example.com` and missing assets such as
+`/missing.js`. HTML responses use `Cache-Control: no-store`; real hashed assets
+retain immutable caching. To turn the fallback off for a multi-page app so
+unknown paths become real 404s, deploy with `--no-spa`:
 
 ```bash
 npx @convex-dev/static-hosting deploy --no-spa
